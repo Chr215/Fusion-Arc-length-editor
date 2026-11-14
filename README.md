@@ -74,5 +74,5 @@ The add-in itself uses the Fusion Python API (`adsk.core`, `adsk.fusion`). Relev
 
 MIT, see [LICENSE](LICENSE).
 
-## AI disclaimer
+## AI disclosure 
 The code of this plugin was written by Anthropic Claude Sonnet 5.5 and partially modified by the author.
