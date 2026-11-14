@@ -8,7 +8,7 @@ Draw an arc, select it, type the arc length you want, and the add-in works out t
 
 - Select an existing sketch arc; the dialog shows its radius, included angle and current length.
 - Enter the new arc length in your document units. Expressions and parameters work like in any other Fusion field.
-- The resulting angle is previewed in the dialog before you confirm.
+- Live preview: the original arc is shown as a dashed construction line and the arc with the new length as a solid line. Nothing is changed until you click OK; the dashed copy disappears when you confirm or cancel.
 - Choose which end point moves: automatic, end point, start point, or symmetric about the arc midpoint.
 - Respects existing constraints: if a move is not possible, the arc is restored and you get a clear message instead of a broken sketch.
 
@@ -47,13 +47,16 @@ In Fusion a sketch arc always runs counterclockwise from its start point to its 
 
 ## How it works
 
-The add-in reads the radius `r` and the length `b` of the arc and computes the new included angle `α = b / r`. It then moves the end point(s) with `SketchPoint.move()` to the matching position on the existing circle. Because the targets lie exactly on that circle, the sketch solver should not need to change anything else. After each attempt the add-in verifies length, radius and center point; if anything is off, the points are moved back and the next option is tried.
+The add-in reads the radius `r` and the length `b` of the arc and computes the new included angle `α = b / r`. It then moves the end point(s) with `SketchPoint.move()` to the matching position on the existing circle. Because the targets lie exactly on that circle, the sketch solver should not need to change anything else.
+
+The preview uses the command's `executePreview` event: it adds a dashed construction copy of the original arc and applies the new length to the real arc. Fusion discards everything created in that event automatically, so on OK the real arc is changed once more without the copy. After each attempt the add-in verifies length, radius and center point; if anything is off, the points are moved back and the next option is tried.
 
 ## Limitations
 
 - Dimensions that fix the arc's angle or length (angular or arc-length dimensions), fixed end points, or tight constraints on both ends can prevent the change. The add-in then restores the arc and tells you so.
 - Projected or otherwise referenced arcs cannot be modified.
 - 3D sketches are not supported.
+- Because the dashed original lies on the same circle as the new arc, it is only visible where the two differ when you shorten an arc. When you lengthen an arc, the dashed original runs underneath the new solid arc.
 - Elliptical arcs and splines are not supported.
 
 ## Status
@@ -74,5 +77,6 @@ The add-in itself uses the Fusion Python API (`adsk.core`, `adsk.fusion`). Relev
 
 MIT, see [LICENSE](LICENSE).
 
-## AI disclosure 
-The code of this plugin was written by Anthropic Claude Sonnet 5.5 and partially modified by the author.
+## AI disclosure
+
+The code of this plugin was written by Anthropic Claude Sonnet 5.5. Tests and verification was concluded by the author.

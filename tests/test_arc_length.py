@@ -26,7 +26,17 @@ class Vector3D:
         return Vector3D(x, y, z)
 
 
+class Point3D:
+    def __init__(self, x, y, z):
+        self.x, self.y, self.z = x, y, z
+
+    @staticmethod
+    def create(x, y, z):
+        return Point3D(x, y, z)
+
+
 core.Vector3D = Vector3D
+core.Point3D = Point3D
 adsk.core, adsk.fusion = core, fusion
 sys.modules.update({'adsk': adsk, 'adsk.core': core, 'adsk.fusion': fusion})
 
@@ -70,8 +80,11 @@ class FakePoint:
 class FakeArc:
     """Arc with center, start and end point; length depends on the direction of rotation."""
 
-    def __init__(self, cx, cy, r, start_deg, sweep_deg, cw=False, noise=0.0):
+    def __init__(self, cx, cy, r, start_deg, sweep_deg, cw=False, noise=0.0, sketch=None):
         self.cw = cw
+        self.parentSketch = sketch if sketch is not None else FakeSketch()
+        self.isConstruction = False
+        self.deleted = False
         self.noise = noise
         self.is2D = True
         self.isReference = False
@@ -91,6 +104,12 @@ class FakeArc:
         sweep = (a_s - a_e) % TWO_PI if self.cw else (a_e - a_s) % TWO_PI
         return r * sweep
 
+    def deleteMe(self):
+        self.deleted = True
+        if self in self.parentSketch.created:
+            self.parentSketch.created.remove(self)
+        return True
+
     def solver_move(self, pt, v):
         self.moves += 1
         if pt.locked:
@@ -108,6 +127,28 @@ class FakeArc:
         if pt.silent_lock:
             pt.x, pt.y, other.x, other.y = old
         return True
+
+
+class FakeSketch:
+    """Sketch with sketchCurves.sketchArcs.addByCenterStartSweep (as in the Fusion API)."""
+
+    def __init__(self):
+        self.created = []
+        self.fail_creation = False
+        outer = self
+
+        class _Arcs:
+            def addByCenterStartSweep(self, center, start, sweep):
+                if outer.fail_creation:
+                    raise RuntimeError('creation failed')
+                r = math.hypot(start.x - center.x, start.y - center.y)
+                a0 = math.degrees(math.atan2(start.y - center.y, start.x - center.x))
+                arc = FakeArc(center.x, center.y, r, a0, abs(math.degrees(sweep)),
+                              cw=sweep < 0, sketch=outer)
+                outer.created.append(arc)
+                return arc
+
+        self.sketchCurves = types.SimpleNamespace(sketchArcs=_Arcs())
 
 
 # ---------------------------------------------------------------- helpers
@@ -256,6 +297,57 @@ def test_noop_when_already_correct():
     print('ok   same length -> nothing is changed')
 
 
+def test_preview_creates_dashed_copy_of_original():
+    for cw in (False, True):
+        for mode in ('end', 'start', 'center'):
+            arc = FakeArc(1.0, -2.0, 5.0, 40, 70, cw=cw)
+            before = snapshot(arc)
+            old_length = arc.length
+            target = 5.0 * math.radians(110)
+            addin.preview_arc_length(arc, target, mode)
+            ghosts = arc.parentSketch.created
+            assert len(ghosts) == 1, (cw, mode)
+            ghost = ghosts[0]
+            assert ghost.isConstruction is True
+            assert close(ghost.length, old_length, 1e-9), 'copy must show the ORIGINAL length'
+            for (gx, gy), (bx, by) in zip(snapshot(ghost), before):
+                assert close(gx, bx, 1e-9) and close(gy, by, 1e-9), (cw, mode, 'copy geometry')
+            assert close(arc.length, target, 1e-8), 'real arc must have the new length'
+            assert arc.isConstruction is False
+    print('ok   preview: dashed copy has the original geometry, real arc has the new length')
+
+
+def test_preview_leaves_no_copy_on_error_or_noop():
+    arc = FakeArc(0, 0, 3.0, 20, 50)
+    addin.preview_arc_length(arc, arc.length, 'end')
+    assert arc.parentSketch.created == [], 'same length -> no copy'
+
+    arc = FakeArc(0, 0, 3.0, 20, 50)
+    arc.startSketchPoint.locked = arc.endSketchPoint.locked = True
+    before = snapshot(arc)
+    expect_arc_error(lambda: addin.preview_arc_length(arc, 3.0 * math.radians(80), 'auto'),
+                     'ArcError expected for locked points')
+    assert arc.parentSketch.created == [], 'copy must be removed after a failed preview'
+    assert snapshot(arc) == before
+
+    arc = FakeArc(0, 0, 2.0, 0, 90)
+    for bad in (0.0, TWO_PI * 2.0 + 1):
+        expect_arc_error(lambda b=bad: addin.preview_arc_length(arc, b, 'end'),
+                         'ArcError expected for {}'.format(bad))
+        assert arc.parentSketch.created == []
+    print('ok   preview: no copy left behind after errors or when nothing changes')
+
+
+def test_preview_works_without_copy_if_creation_fails():
+    arc = FakeArc(0, 0, 3.0, 20, 50)
+    arc.parentSketch.fail_creation = True
+    target = 3.0 * math.radians(90)
+    addin.preview_arc_length(arc, target, 'end')
+    assert close(arc.length, target, 1e-8)
+    assert arc.parentSketch.created == []
+    print('ok   preview: still shows the new arc if the dashed copy cannot be created')
+
+
 if __name__ == '__main__':
     test_state_reading()
     test_modes_and_angles()
@@ -265,4 +357,7 @@ if __name__ == '__main__':
     test_invalid_targets()
     test_solver_noise_is_corrected()
     test_noop_when_already_correct()
+    test_preview_creates_dashed_copy_of_original()
+    test_preview_leaves_no_copy_on_error_or_noop()
+    test_preview_works_without_copy_if_creation_fails()
     print('\nAll tests passed.')

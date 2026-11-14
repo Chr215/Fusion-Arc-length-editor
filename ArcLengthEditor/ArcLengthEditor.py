@@ -7,6 +7,7 @@ Workflow:
   2. Start the "Set Arc Length" command
      (Sketch > Modify, or Solid > Modify).
   3. Select the arc, enter the desired arc length, click OK.
+     The preview shows the original arc dashed and the new arc solid.
 
 The add-in reads the radius and arc length of the selected arc, computes the
 required included angle  alpha = b / r  and moves one (or both) end points
@@ -284,6 +285,49 @@ def apply_arc_length(arc, target_length, mode='auto'):
 
 
 # --------------------------------------------------------------------------
+# Preview
+# --------------------------------------------------------------------------
+def _make_reference_copy(arc, st):
+    """Dashed copy (construction geometry) of the arc in its current state."""
+    center = adsk.core.Point3D.create(st.cx, st.cy, 0.0)
+    s = arc.startSketchPoint.geometry
+    start = adsk.core.Point3D.create(s.x, s.y, 0.0)
+    arcs = arc.parentSketch.sketchCurves.sketchArcs
+    ghost = arcs.addByCenterStartSweep(center, start, st.direction * st.sweep)
+    ghost.isConstruction = True
+    return ghost
+
+
+def preview_arc_length(arc, target_length, mode='auto'):
+    """Preview for the dialog.
+
+    Creates a dashed construction copy of the original arc and then gives the
+    real arc its new length. Call this only from the executePreview event:
+    Fusion discards everything created there before the next preview, when the
+    dialog is cancelled and before execute runs, so nothing is left behind.
+
+    Raises ArcError if the length cannot be applied (the copy is removed again).
+    """
+    st = read_arc_state(arc)
+    if abs(target_length - st.length) <= _tolerance(target_length):
+        return  # nothing changes, so there is nothing to compare against
+
+    try:
+        ghost = _make_reference_copy(arc, st)
+    except RuntimeError:
+        ghost = None        # a preview without the dashed copy is still useful
+    try:
+        apply_arc_length(arc, target_length, mode)
+    except ArcError:
+        if ghost is not None:
+            try:
+                ghost.deleteMe()
+            except RuntimeError:
+                pass
+        raise
+
+
+# --------------------------------------------------------------------------
 # Dialog helpers
 # --------------------------------------------------------------------------
 def _selected_arc(inputs):
@@ -441,6 +485,37 @@ class ExecuteHandler(adsk.core.CommandEventHandler):
             _report_error()
 
 
+class ExecutePreviewHandler(adsk.core.CommandEventHandler):
+    """Live preview: original arc dashed, arc with the new length solid.
+
+    Fusion discards everything done here automatically (next input change,
+    cancel, or right before execute), so the dashed copy never survives the dialog.
+    """
+
+    def notify(self, args):
+        inputs = None
+        try:
+            a = adsk.core.CommandEventArgs.cast(args)
+            inputs = a.command.commandInputs
+            arc = _selected_arc(inputs)
+            target = _read_length(inputs)
+            if arc is None or target is None:
+                return
+            preview_arc_length(arc, target, _selected_mode(inputs))
+            # isValidResult stays False on purpose: execute() creates the final
+            # result without the dashed copy.
+        except Exception as ex:
+            self._show(inputs, str(ex))
+
+    @staticmethod
+    def _show(inputs, text):
+        try:
+            result = adsk.core.TextBoxCommandInput.cast(inputs.itemById(ID_RESULT))
+            result.formattedText = 'Preview not possible: {}'.format(text)
+        except Exception:
+            pass
+
+
 class DestroyHandler(adsk.core.CommandEventHandler):
     def notify(self, args):
         global _cmd_handlers
@@ -479,6 +554,7 @@ class CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
             inputs.addTextBoxCommandInput(ID_RESULT, 'Result', '', 2, True)
 
             for event, handler in ((cmd.execute, ExecuteHandler()),
+                                   (cmd.executePreview, ExecutePreviewHandler()),
                                    (cmd.inputChanged, InputChangedHandler()),
                                    (cmd.validateInputs, ValidateHandler()),
                                    (cmd.preSelect, PreSelectHandler()),
