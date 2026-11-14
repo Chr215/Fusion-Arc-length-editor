@@ -12,6 +12,8 @@ Draw an arc, select it, type the arc length you want, and the add-in works out t
 - Choose which end point moves: automatic, end point, start point, or symmetric about the arc midpoint.
 - Respects existing constraints: if a move is not possible, the arc is restored and you get a clear message instead of a broken sketch.
 
+<img width="723" height="304" alt="grafik" src="https://github.com/user-attachments/assets/2842f24b-52c0-4c56-a52b-a9cbe15351cb" />
+
 ## Installation
 
 1. Download the latest release ZIP (or clone this repository).
