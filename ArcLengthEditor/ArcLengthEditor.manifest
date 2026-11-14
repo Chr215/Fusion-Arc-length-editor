@@ -1,0 +1,13 @@
+{
+    "autodeskProduct": "Fusion360",
+    "type": "addin",
+    "id": "e3b7a0c4-5f1d-4a96-8c2e-0d9b6f4a7312",
+    "author": "Christian Ohlwärter"
+    "description": {
+        "": "Sets the included angle of a sketch arc so that the arc has a given length. The radius stays unchanged."
+    },
+    "version": "1.0.0",
+    "runOnStartup": false,
+    "supportedOS": "windows|mac",
+    "editEnabled": true
+}
